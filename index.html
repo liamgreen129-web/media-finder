@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Media Finder</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Media Finder">
+<meta name="theme-color" content="#0e0f12">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root {
+    --bg: #0e0f12; --panel: #17191e; --panel2: #20232a; --line: #2a2e36;
+    --text: #eceef2; --muted: #8b919c; --accent: #ff6b4a; --accent-ink: #1a0b06;
+    --radius: 14px;
+    --top: env(safe-area-inset-top, 0px); --bot: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+  body { min-height: 100vh; overscroll-behavior-y: none; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+
+  /* ---------- Login ---------- */
+  #login { min-height: 100vh; display: grid; place-items: center; padding: calc(24px + var(--top)) 20px calc(24px + var(--bot)); }
+  .card { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 28px 22px; }
+  .card h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
+  .card p { margin: 0 0 22px; color: var(--muted); }
+  .field { display: block; margin-bottom: 12px; }
+  .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .field input[type=email], .field input[type=password], .field input[type=text] {
+    width: 100%; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); outline: none; font-size: 16px; }
+  .field input:focus { border-color: var(--accent); }
+  .check { display: flex; gap: 10px; align-items: center; margin: 6px 0 18px; color: var(--muted); font-size: 14px; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .primary { width: 100%; padding: 14px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-weight: 650; font-size: 16px; }
+  .primary:disabled { opacity: .55; }
+  .error { color: #ff8a80; font-size: 14px; margin: 12px 0 0; min-height: 1em; }
+  .fine { margin-top: 18px; font-size: 12.5px; color: var(--muted); }
+
+  /* ---------- Top bar ---------- */
+  header { position: sticky; top: 0; z-index: 10; background: rgba(14,15,18,.92); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    padding: calc(10px + var(--top)) 14px 10px; border-bottom: 1px solid var(--line); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row + .row { margin-top: 10px; }
+  .folderBtn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px;
+    background: var(--panel2); border: 0; text-align: left; }
+  .folderBtn .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .folderBtn .sub { color: var(--muted); font-size: 12px; }
+  .iconBtn { flex: none; width: 40px; height: 40px; border-radius: 12px; border: 0; background: var(--panel2); display: grid; place-items: center; }
+  .iconBtn svg { width: 20px; height: 20px; }
+  .search { flex: 1; position: relative; }
+  .search input { width: 100%; padding: 10px 12px 10px 36px; border-radius: 12px; border: 0; background: var(--panel2); outline: none; font-size: 16px; }
+  .search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--muted); }
+  .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -14px; padding: 0 14px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .chip.on { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+  .controls { justify-content: space-between; }
+  select { appearance: none; -webkit-appearance: none; background: var(--panel2); border: 0; border-radius: 10px; padding: 7px 28px 7px 11px; font-size: 14px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+  .seg { display: inline-flex; background: var(--panel2); border-radius: 10px; padding: 3px; }
+  .seg button { border: 0; background: transparent; padding: 4px 10px; border-radius: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .seg button.on { background: var(--bg); color: var(--text); }
+  .status { color: var(--muted); font-size: 13px; padding: 10px 14px 6px; }
+
+  /* ---------- Grid ---------- */
+  #grid { display: grid; grid-template-columns: repeat(var(--cols, 2), 1fr); gap: 3px; padding: 0 3px calc(24px + var(--bot)); }
+  .tile { position: relative; aspect-ratio: 1; background: var(--panel); overflow: hidden; border: 0; padding: 0; display: block; width: 100%; }
+  .tile img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .25s; }
+  .tile img.loaded { opacity: 1; }
+  .tile .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  .tile .meta { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 6px; background: linear-gradient(transparent, rgba(0,0,0,.75));
+    font-size: 12px; color: #fff; text-align: left; display: flex; gap: 6px; align-items: flex-end; }
+  .tile .meta .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .meta .s { flex: none; opacity: .8; }
+  .tile .play { position: absolute; top: 7px; right: 7px; width: 26px; height: 26px; border-radius: 50%; background: rgba(0,0,0,.55); display: grid; place-items: center; }
+  .tile .play svg { width: 12px; height: 12px; margin-left: 2px; }
+  .tile.current { outline: 3px solid var(--accent); outline-offset: -3px; }
+  [data-cols="4"] .tile .meta .n { display: none; }
+  #more { height: 1px; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 24px; }
+  .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; margin: 0 auto 14px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- Viewer ---------- */
+  #viewer { position: fixed; inset: 0; z-index: 50; background: #000; display: flex; flex-direction: column; }
+  #viewer .vtop { display: flex; align-items: center; gap: 10px; padding: calc(8px + var(--top)) 10px 8px; background: #000; }
+  #viewer .vtitle { flex: 1; min-width: 0; }
+  #viewer .vtitle div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #viewer .vtitle .vn { font-weight: 600; }
+  #viewer .vtitle .vp { font-size: 12px; color: #aaa; }
+  #viewer .iconBtn { background: rgba(255,255,255,.12); color: #fff; }
+  #stage { flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; touch-action: pan-y; }
+  #stage img, #stage video { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #stage .msg { color: #bbb; text-align: center; padding: 24px; max-width: 340px; }
+  #viewer .vbot { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px calc(10px + var(--bot)); color: #aaa; font-size: 13px; }
+  #viewer .vbot button { background: rgba(255,255,255,.12); border: 0; color: #fff; border-radius: 12px; padding: 10px 16px; font-weight: 600; }
+  #viewer .vbot button:disabled { opacity: .3; }
+
+  /* ---------- Folder sheet ---------- */
+  #sheet { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; }
+  #sheet .panel { width: 100%; max-height: 82vh; background: var(--panel); border-radius: 20px 20px 0 0; display: flex; flex-direction: column; padding-bottom: var(--bot); }
+  #sheet .shead { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+  #sheet .crumbs { color: var(--muted); font-size: 13px; margin-top: 4px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+  #sheet .crumbs button { background: none; border: 0; color: var(--accent); padding: 0; font-size: 13px; }
+  #sheet .list { overflow-y: auto; flex: 1; }
+  #sheet .item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 16px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; }
+  #sheet .item .c { color: var(--muted); font-size: 12px; margin-left: auto; flex: none; }
+  #sheet .item span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sheet .sfoot { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  #sheet .sfoot button { flex: 1; padding: 12px; border-radius: 12px; border: 0; background: var(--panel2); font-weight: 600; }
+  #sheet .sfoot .primary { background: var(--accent); color: var(--accent-ink); }
+
+  @media (min-width: 700px) { #grid { grid-template-columns: repeat(calc(var(--cols, 2) * 2), 1fr); } }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<section id="login" class="hidden">
+  <form class="card" id="loginForm" autocomplete="on">
+    <h1>Media Finder</h1>
+    <p>Search your MEGA cloud for photos and videos across every subfolder.</p>
+    <label class="field"><span>MEGA email</span><input type="email" id="email" autocomplete="username" required></label>
+    <label class="field"><span>Password</span><input type="password" id="password" autocomplete="current-password" required></label>
+    <label class="field hidden" id="mfaField"><span>Two-factor code</span><input type="text" id="mfa" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label>
+    <label class="check"><input type="checkbox" id="remember" checked> Stay signed in on this phone</label>
+    <button class="primary" id="loginBtn" type="submit">Sign in</button>
+    <div class="error" id="loginError"></div>
+    <div class="fine">Your password goes straight to MEGA from this page. Nothing is sent anywhere else.</div>
+  </form>
+</section>
+
+<!-- Main -->
+<section id="main" class="hidden">
+  <header>
+    <div class="row">
+      <button class="folderBtn" id="folderBtn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <div style="min-width:0"><div class="name" id="folderName">Cloud Drive</div><div class="sub">and all subfolders ▾</div></div>
+      </button>
+      <button class="iconBtn" id="refreshBtn" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      <button class="iconBtn" id="logoutBtn" aria-label="Sign out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg></button>
+    </div>
+    <div class="row">
+      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input type="search" id="query" placeholder="Filter by name" autocomplete="off"></label>
+    </div>
+    <div class="row chips" id="chips">
+      <button class="chip" data-kind="video">Videos</button>
+      <button class="chip" data-kind="photo">Photos</button>
+      <button class="chip" data-kind="media">Photos &amp; videos</button>
+      <button class="chip" data-kind="audio">Audio</button>
+      <button class="chip" data-kind="all">All files</button>
+    </div>
+    <div class="row controls">
+      <select id="sort" aria-label="Sort">
+        <option value="new">Newest first</option>
+        <option value="old">Oldest first</option>
+        <option value="big">Largest first</option>
+        <option value="small">Smallest first</option>
+        <option value="name">Name A–Z</option>
+        <option value="folder">By folder</option>
+      </select>
+      <div class="seg" id="sizeSeg" aria-label="Thumbnail size">
+        <button data-cols="1">XL</button><button data-cols="2">L</button><button data-cols="3">M</button><button data-cols="4">S</button>
+      </div>
+    </div>
+  </header>
+  <div class="status" id="status"></div>
+  <div id="grid"></div>
+  <div id="more"></div>
+  <div class="empty hidden" id="empty"></div>
+</section>
+
+<!-- Folder picker -->
+<div id="sheet" class="hidden">
+  <div class="panel">
+    <div class="shead"><strong>Search in…</strong><div class="crumbs" id="crumbs"></div></div>
+    <div class="list" id="folderList"></div>
+    <div class="sfoot"><button id="sheetCancel">Cancel</button><button class="primary" id="sheetPick">Search this folder</button></div>
+  </div>
+</div>
+
+<!-- Viewer -->
+<div id="viewer" class="hidden">
+  <div class="vtop">
+    <button class="iconBtn" id="closeBtn" aria-label="Back to results"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="vtitle"><div class="vn" id="vName"></div><div class="vp" id="vPath"></div></div>
+  </div>
+  <div id="stage"></div>
+  <div class="vbot"><button id="prevBtn">‹ Prev</button><span id="vCount"></span><button id="nextBtn">Next ›</button></div>
+</div>
+
+<script src="mega.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
