@@ -247,15 +247,51 @@ const ICON_LINK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 function cleanLink(text) {
-  const m = /https?:\/\/(?:www\.)?mega(?:\.co)?\.nz\/\S+/i.exec(text || '');
-  return m ? m[0].replace(/[)\].,'"]+$/, '') : null;
+  // tolerate links pasted with line breaks/spaces, or without https://
+  const t = String(text || '').replace(/[\r\n]+/g, '');
+  const m = /(?:https?:\/\/)?(?:www\.)?mega(?:\.co)?\.nz\/[^\s<>"']+/i.exec(t);
+  if (!m) return null;
+  let u = m[0].replace(/[)\].,'"]+$/, '');
+  if (!/^https?:/i.test(u)) u = 'https://' + u;
+  return u;
 }
 
-async function openLink(text) {
-  const url = cleanLink(text);
+// Turn any MEGA link style into {id, key, folder, sub}:
+//   new:  mega.nz/folder/ID#KEY  (/file/SUB or /folder/SUB after the key opens one item inside)
+//         mega.nz/file/ID#KEY
+//   old:  mega.nz/#F!ID!KEY  (!SUB optional)   mega.nz/#!ID!KEY
+//   also: mega.nz/embed/ID#KEY, mega.nz/folder/ID!KEY and similar mistypes
+function parseLink(url) {
+  const u = new URL(url);
+  let hash = decodeURIComponent(u.hash.replace(/^#/, ''));
+  const path = u.pathname;
+  let m;
+  if ((m = /\/(folder|file|embed)\/([\w-]+)(?:[!#]([\w-]+))?/.exec(path + (hash ? '#' + hash : '')))) {
+    const folder = m[1] === 'folder';
+    const id = m[2];
+    let key = m[3] || '', sub = null;
+    const rest = /^[\w-]+\/(?:file|folder)\/([\w-]+)/.exec(hash);
+    if (rest) sub = rest[1];
+    if (!key && hash && /^[\w-]+$/.test(hash)) key = hash;
+    return { id, key, folder, sub };
+  }
+  if ((m = /^(F?)!([\w-]+)(?:!([\w-]+))?(?:[!@]([\w-]+))?/.exec(hash))) {
+    return { id: m[2], key: m[3] || '', folder: m[1] === 'F', sub: m[4] || null };
+  }
+  if (/^P!/.test(hash)) throw new Error('This is a password-protected link (#P!). Those can’t be opened here yet.');
+  throw new Error('Couldn’t read this MEGA link. Check it was copied completely.');
+}
+
+async function openLink(text, keyText) {
+  let url = cleanLink(text);
   if (!url) throw new Error('That doesn’t look like a MEGA link. It should start with https://mega.nz/');
-  if (!/#/.test(url)) throw new Error('This link has no decryption key (the part after #). Ask for the full link, or the key.');
-  const f = mega.File.fromURL(url);
+  const p = parseLink(url);
+  if (!p.key && keyText) p.key = String(keyText).replace(/\s+/g, '').replace(/^[#!]+/, '');
+  if (!p.key) { const e = new Error('NEEDKEY'); e.needKey = true; throw e; }
+  if (!/^[\w-]+$/.test(p.key)) throw new Error('That key has characters a MEGA key can’t contain. Check it was copied completely.');
+  // remember it in a tidy, complete form
+  url = `https://mega.nz/${p.folder ? 'folder' : 'file'}/${p.id}#${p.key}` + (p.sub ? `/file/${p.sub}` : '');
+  const f = new mega.File({ downloadId: p.id, key: p.key, directory: p.folder, loadedFile: p.sub || undefined });
   const node = await f.loadAttributes();
   if (!node.directory && !node.fa) {
     // megajs drops the thumbnail info for single-file links; fetch it ourselves
@@ -282,6 +318,8 @@ function closeLink() {
 
 function openLinkSheet() {
   $('linkInput').value = '';
+  $('keyInput').value = '';
+  $('keyRow').classList.add('hidden');
   $('linkError').textContent = '';
   const list = $('recentLinks'); list.innerHTML = '';
   const recent = LS.get('links', []);
@@ -306,12 +344,18 @@ async function submitLink(text) {
   const btn = $('linkOpen');
   btn.disabled = true; btn.textContent = 'Opening…'; $('linkError').textContent = '';
   try {
-    await openLink(text);
+    await openLink(text, $('keyInput').value);
     $('linkSheet').classList.add('hidden');
   } catch (e) {
     const m = String(e && e.message || e);
+    if (e && e.needKey) {
+      $('keyRow').classList.remove('hidden');
+      $('keyInput').focus();
+      $('linkError').textContent = 'This link needs its decryption key. Paste the key you were sent.';
+      return;
+    }
     $('linkError').textContent = /ENOENT|-9|EBLOCKED|-16/.test(m) ? 'This link no longer exists or was taken down.'
-      : /EKEY|decrypt|Attributes/.test(m) ? 'The key in this link is wrong.' : m;
+      : /EKEY|decrypt|Attributes|Invalid argument/.test(m) ? 'That decryption key doesn’t match this link.' : m;
   } finally { btn.disabled = false; btn.textContent = 'Open'; }
 }
 
@@ -595,8 +639,19 @@ $('loginLinkBtn').onclick = () => openLinkSheet();
 $('linkCancel').onclick = () => $('linkSheet').classList.add('hidden');
 $('linkSheet').addEventListener('click', (e) => { if (e.target.id === 'linkSheet') $('linkSheet').classList.add('hidden'); });
 $('linkForm').addEventListener('submit', (e) => { e.preventDefault(); submitLink($('linkInput').value); });
+function checkLinkNeedsKey() {
+  const u = cleanLink($('linkInput').value);
+  let need = false;
+  try { need = !!u && !parseLink(u).key; } catch {}
+  if (need) $('keyRow').classList.remove('hidden');
+}
+$('linkInput').addEventListener('input', checkLinkNeedsKey);
+$('keyPaste').onclick = async () => {
+  try { const t = await navigator.clipboard.readText(); $('keyInput').value = t.trim(); submitLink($('linkInput').value); }
+  catch { $('linkError').textContent = 'Couldn’t read the clipboard. Long-press the key box and tap Paste.'; }
+};
 $('linkPaste').onclick = async () => {
-  try { const t = await navigator.clipboard.readText(); $('linkInput').value = t; if (cleanLink(t)) submitLink(t); }
+  try { const t = await navigator.clipboard.readText(); $('linkInput').value = t; checkLinkNeedsKey(); if (cleanLink(t)) submitLink(t); }
   catch { $('linkError').textContent = 'Couldn’t read the clipboard. Long-press the box and tap Paste.'; }
 };
 $('logoutBtn').onclick = () => {

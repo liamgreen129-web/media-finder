@@ -125,6 +125,7 @@
   #linkSheet .shead { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
   #linkSheet .crumbs { font-size: 13px; margin-top: 4px; }
   #linkSheet .lbody { padding: 14px 16px 4px; }
+  #linkSheet .row + .row { margin-top: 10px; }
   #linkSheet input { flex: 1; min-width: 0; padding: 12px 13px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); outline: none; font-size: 16px; }
   #linkSheet input:focus { border-color: var(--accent); }
   .pasteBtn { flex: none; padding: 12px 14px; border-radius: 12px; border: 0; background: var(--panel2); font-weight: 600; }
@@ -217,6 +218,8 @@
     <div class="lbody">
       <div class="row"><input type="url" id="linkInput" placeholder="https://mega.nz/folder/…#…" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button type="button" class="pasteBtn" id="linkPaste">Paste</button></div>
+      <div class="row hidden" id="keyRow"><input type="text" id="keyInput" placeholder="Decryption key" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button type="button" class="pasteBtn" id="keyPaste">Paste</button></div>
       <div class="error" id="linkError"></div>
     </div>
     <div id="recentWrap" class="hidden"><div class="rlabel">Recent links</div><div class="list" id="recentLinks"></div></div>
