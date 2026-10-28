@@ -1,7 +1,7 @@
 // Service worker: caches the app shell and streams + decrypts MEGA files on the fly,
 // so videos can start playing (and seek) without downloading the whole file first.
 
-const SHELL_CACHE = 'shell-v1';
+const SHELL_CACHE = 'shell-v2';
 const SHELL = ['./', './index.html', './app.js', './mega.js', './manifest.webmanifest', './icon-180.png', './icon-512.png'];
 const MAX_CHUNK = 8 * 1024 * 1024; // answer open-ended range requests in 8 MB pieces
 

@@ -103,13 +103,29 @@ function saveSession(s) {
   LS.set('session', { key: j.key, sid: j.sid, name: j.name, user: j.user, email: s.email || (j.options && j.options.email) });
 }
 
-function api(req) { return state.storage.api.request(req); }
+// Send an API request in the right context for a file: your own account, a file inside a
+// shared folder link (needs the folder id as ?n=), or a single shared file link (p=).
+function req(file, body) {
+  const n = file.node;
+  if (Array.isArray(n.downloadId)) {
+    return n.api.request({ ...body, n: n.downloadId[1], _querystring: { n: n.downloadId[0] } });
+  }
+  if (!n.nodeId && n.downloadId) return n.api.request({ ...body, p: n.downloadId });
+  return state.storage.api.request({ ...body, n: n.nodeId });
+}
+// Same, for commands that don't name a node (thumbnail fetches)
+function ctxReq(file, body) {
+  const n = file.node;
+  if (Array.isArray(n.downloadId)) return n.api.request({ ...body, _querystring: { n: n.downloadId[0] } });
+  if (!n.nodeId && n.downloadId) return n.api.request(body);
+  return state.storage.api.request(body);
+}
 
-const dlCache = new Map(); // nodeId -> {g, s, t}
+const dlCache = new Map(); // id -> {g, s, t}
 async function downloadUrl(file) {
   const c = dlCache.get(file.id);
   if (c && Date.now() - c.t < 20 * 60 * 1000) return c;
-  const r = await api({ a: 'g', g: 1, ssl: 2, n: file.id });
+  const r = await req(file, { a: 'g', g: 1, ssl: 2 });
   if (typeof r.g !== 'string' || !r.g.startsWith('http')) throw new Error('MEGA didn’t return a download link (possibly over transfer quota).');
   const v = { g: r.g, s: r.s, t: Date.now() };
   dlCache.set(file.id, v);
@@ -146,7 +162,7 @@ async function loadAttr(file, type) {
     const hit = thumbCache && await thumbCache.match(cacheKey);
     if (hit) blob = await hit.blob();
     else {
-      const r = await api({ a: 'ufa', fah: handle, ssl: 2, r: 1 });
+      const r = await ctxReq(file, { a: 'ufa', fah: handle, ssl: 2, r: 1 });
       const res = await fetch(r.p + '/' + type, { method: 'POST', body: b64urlToBytes(handle) });
       if (!res.ok) throw new Error('thumb ' + res.status);
       const buf = new Uint8Array(await res.arrayBuffer());
@@ -175,17 +191,21 @@ function pump() {
 }
 
 /* ---------------- Building the file list ---------------- */
+function itemFor(ch, path) {
+  const dot = ch.name.lastIndexOf('.');
+  const ext = dot > 0 ? ch.name.slice(dot + 1).toLowerCase() : '';
+  const id = ch.nodeId || (Array.isArray(ch.downloadId) ? ch.downloadId[1] : ch.downloadId);
+  return { id, node: ch, name: ch.name, lname: ch.name.toLowerCase(), ext,
+    kind: KIND_OF[ext] || 'other', size: ch.size || 0, ts: ch.timestamp || 0, path, fa: ch.fa };
+}
+
 function collect(rootNode) {
+  if (!rootNode.directory) return rootNode.name ? [itemFor(rootNode, '')] : [];
   const out = [];
   const walk = (node, path) => {
     for (const ch of node.children || []) {
       if (ch.directory) walk(ch, path ? path + ' / ' + ch.name : ch.name);
-      else if (ch.name) {
-        const dot = ch.name.lastIndexOf('.');
-        const ext = dot > 0 ? ch.name.slice(dot + 1).toLowerCase() : '';
-        out.push({ id: ch.nodeId, node: ch, name: ch.name, lname: ch.name.toLowerCase(), ext,
-          kind: KIND_OF[ext] || 'other', size: ch.size || 0, ts: ch.timestamp || 0, path, fa: ch.fa });
-      }
+      else if (ch.name) out.push(itemFor(ch, path));
     }
   };
   walk(rootNode, '');
@@ -193,6 +213,7 @@ function collect(rootNode) {
 }
 
 function rootChoices() {
+  if (state.link) return [{ node: state.link.root, label: state.link.root.name || 'Shared link' }];
   const s = state.storage;
   const list = [{ node: s.root, label: 'Cloud Drive' }];
   for (const m of s.mounts || []) {
@@ -203,6 +224,7 @@ function rootChoices() {
 }
 
 function currentRoot() {
+  if (state.link) return state.link.cur || state.link.root;
   const s = state.storage;
   return (state.rootId && s.files && s.files[state.rootId]) || s.root;
 }
@@ -210,8 +232,87 @@ function currentRoot() {
 function rebuild() {
   const root = currentRoot();
   state.all = collect(root);
-  $('folderName').textContent = root === state.storage.root ? 'Cloud Drive' : root.name;
+  $('folderName').textContent = nodeLabel(root);
+  $('folderSub').textContent = state.link
+    ? (root.directory ? 'Shared link · all subfolders ▾' : 'Shared file')
+    : 'and all subfolders ▾';
+  $('linkBtn').innerHTML = state.link ? ICON_CLOSE : ICON_LINK;
+  $('linkBtn').setAttribute('aria-label', state.link ? 'Close shared link' : 'Open shared link');
+  $('logoutBtn').classList.toggle('hidden', !state.storage || !!state.link);
   applyFilters();
+}
+
+/* ---------------- Shared links ---------------- */
+const ICON_LINK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
+const ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+function cleanLink(text) {
+  const m = /https?:\/\/(?:www\.)?mega(?:\.co)?\.nz\/\S+/i.exec(text || '');
+  return m ? m[0].replace(/[)\].,'"]+$/, '') : null;
+}
+
+async function openLink(text) {
+  const url = cleanLink(text);
+  if (!url) throw new Error('That doesn’t look like a MEGA link. It should start with https://mega.nz/');
+  if (!/#/.test(url)) throw new Error('This link has no decryption key (the part after #). Ask for the full link, or the key.');
+  const f = mega.File.fromURL(url);
+  const node = await f.loadAttributes();
+  if (!node.directory && !node.fa) {
+    // megajs drops the thumbnail info for single-file links; fetch it ourselves
+    try { const r = await node.api.request({ a: 'g', p: node.downloadId }); node.fa = r.fa; } catch {}
+  }
+  if (!node.timestamp && f.timestamp) node.timestamp = f.timestamp;
+  state.link = { root: node, url };
+  const recent = LS.get('links', []).filter((l) => l.url !== url);
+  recent.unshift({ url, name: node.name || 'Shared link', folder: !!node.directory });
+  LS.set('links', recent.slice(0, 6));
+  if ($('main').classList.contains('hidden')) showMain();
+  rebuild();
+  if (!node.directory) {
+    if (!state.results.length) { state.kind = 'all'; markChips(); applyFilters(); }
+    openViewer(0);
+  }
+}
+
+function closeLink() {
+  state.link = null;
+  if (state.storage) rebuild();
+  else { $('main').classList.add('hidden'); showLogin(); }
+}
+
+function openLinkSheet() {
+  $('linkInput').value = '';
+  $('linkError').textContent = '';
+  const list = $('recentLinks'); list.innerHTML = '';
+  const recent = LS.get('links', []);
+  $('recentWrap').classList.toggle('hidden', !recent.length);
+  for (const l of recent) {
+    const b = document.createElement('button'); b.className = 'item';
+    b.innerHTML = (l.folder
+      ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>'
+      : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>') +
+      '<span class="t"></span><span class="c">✕</span>';
+    b.querySelector('.t').textContent = l.name;
+    b.onclick = (e) => {
+      if (e.target.classList.contains('c')) { LS.set('links', LS.get('links', []).filter((x) => x.url !== l.url)); openLinkSheet(); return; }
+      submitLink(l.url);
+    };
+    list.append(b);
+  }
+  $('linkSheet').classList.remove('hidden');
+}
+
+async function submitLink(text) {
+  const btn = $('linkOpen');
+  btn.disabled = true; btn.textContent = 'Opening…'; $('linkError').textContent = '';
+  try {
+    await openLink(text);
+    $('linkSheet').classList.add('hidden');
+  } catch (e) {
+    const m = String(e && e.message || e);
+    $('linkError').textContent = /ENOENT|-9|EBLOCKED|-16/.test(m) ? 'This link no longer exists or was taken down.'
+      : /EKEY|decrypt|Attributes/.test(m) ? 'The key in this link is wrong.' : m;
+  } finally { btn.disabled = false; btn.textContent = 'Open'; }
 }
 
 /* ---------------- Filtering, sorting, rendering ---------------- */
@@ -411,17 +512,17 @@ function step(d) {
 /* ---------------- Folder picker ---------------- */
 let pickStack = [];
 function openSheet() {
-  const s = state.storage;
+  if (!currentRoot().directory) return;
   pickStack = [];
   // start at the chosen folder, with its parents as breadcrumbs
   let n = currentRoot();
   const chain = [];
   while (n) { chain.unshift(n); n = n.parent; }
-  pickStack = chain.length ? chain : [s.root];
+  pickStack = chain.length ? chain : [rootChoices()[0].node];
   renderSheet();
   $('sheet').classList.remove('hidden');
 }
-function nodeLabel(n) { return n === state.storage.root ? 'Cloud Drive' : (n.name || 'Folder'); }
+function nodeLabel(n) { return state.storage && n === state.storage.root ? 'Cloud Drive' : (n.name || 'Folder'); }
 function renderSheet() {
   const cur = pickStack[pickStack.length - 1];
   const crumbs = $('crumbs'); crumbs.innerHTML = '';
@@ -455,8 +556,8 @@ $('sheetCancel').onclick = () => $('sheet').classList.add('hidden');
 $('sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') $('sheet').classList.add('hidden'); });
 $('sheetPick').onclick = () => {
   const cur = pickStack[pickStack.length - 1]; if (!cur) return;
-  state.rootId = cur === state.storage.root ? null : cur.nodeId;
-  LS.set('root', state.rootId);
+  if (state.link) state.link.cur = cur;
+  else { state.rootId = cur === state.storage.root ? null : cur.nodeId; LS.set('root', state.rootId); }
   $('sheet').classList.add('hidden');
   rebuild();
 };
@@ -484,7 +585,19 @@ document.addEventListener('keydown', (e) => {
 $('refreshBtn').onclick = async () => {
   if (DEMO) return;
   setLoading('Refreshing…');
-  try { await state.storage.reload(true); rebuild(); } catch (e) { $('status').textContent = 'Refresh failed: ' + e.message; }
+  try {
+    if (state.link) { const l = state.link; await openLink(l.url); }
+    else { await state.storage.reload(true); rebuild(); }
+  } catch (e) { $('status').textContent = 'Refresh failed: ' + e.message; }
+};
+$('linkBtn').onclick = () => (state.link ? closeLink() : openLinkSheet());
+$('loginLinkBtn').onclick = () => openLinkSheet();
+$('linkCancel').onclick = () => $('linkSheet').classList.add('hidden');
+$('linkSheet').addEventListener('click', (e) => { if (e.target.id === 'linkSheet') $('linkSheet').classList.add('hidden'); });
+$('linkForm').addEventListener('submit', (e) => { e.preventDefault(); submitLink($('linkInput').value); });
+$('linkPaste').onclick = async () => {
+  try { const t = await navigator.clipboard.readText(); $('linkInput').value = t; if (cleanLink(t)) submitLink(t); }
+  catch { $('linkError').textContent = 'Couldn’t read the clipboard. Long-press the box and tap Paste.'; }
 };
 $('logoutBtn').onclick = () => {
   if (!confirm('Sign out of MEGA on this phone?')) return;
@@ -505,6 +618,7 @@ function showMain() {
   $('login').classList.add('hidden');
   $('main').classList.remove('hidden');
   markChips(); setCols(state.cols);
+  $('linkBtn').innerHTML = state.link ? ICON_CLOSE : ICON_LINK;
 }
 
 function showLogin(msg) {
@@ -576,6 +690,7 @@ function startDemo() {
   state.storage = { root: {} };
   showMain();
   $('folderName').textContent = 'Cloud Drive';
+  $('linkBtn').innerHTML = ICON_LINK;
   applyFilters();
 }
 
@@ -583,17 +698,24 @@ function startDemo() {
 (async () => {
   if (DEMO) return startDemo();
   if (!window.mega) return showLogin('Couldn’t load the MEGA library. Check your connection and reopen the app.');
+  // Media Finder can be opened with a link: .../media-finder/?link=https://mega.nz/folder/...#key
+  const startLink = new URLSearchParams(location.search).get('link') || (location.hash.startsWith('#https') ? decodeURIComponent(location.hash.slice(1)) : null);
   if (LS.get('session', null)) {
     showMain(); setLoading('Loading your files…');
     try {
       state.storage = await restoreSession();
       rebuild();
-      return;
     } catch (e) {
       LS.del('session');
-      return showLogin('Your session expired. Please sign in again.');
+      if (!startLink) return showLogin('Your session expired. Please sign in again.');
     }
   }
-  showLogin();
+  if (startLink) {
+    history.replaceState(null, '', location.pathname);
+    if ($('main').classList.contains('hidden')) showLogin();
+    openLinkSheet(); $('linkInput').value = startLink; submitLink(startLink);
+    return;
+  }
+  if (!state.storage) showLogin();
 })();
 })();

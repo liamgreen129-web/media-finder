@@ -27,6 +27,7 @@ Your MEGA login is never stored in the repo. It only exists on your phone.
 - **Sort**: newest, oldest, largest, smallest, name, or grouped by folder.
 - **XL / L / M / S**: thumbnail size.
 - **Filter by name**: matches file names and folder names.
+- **Link button** (top): paste a shared MEGA file or folder link to search inside it, no sign-in needed. Recent links are remembered; the ✕ takes you back to your own drive.
 - Tap a tile to open it. Use Prev / Next (or swipe on photos) to move through the results. Back returns you to the same spot in the grid.
 
 ## Notes
